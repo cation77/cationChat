@@ -10,6 +10,8 @@ export function useChat() {
   const store = useChatStore();
   const abortControllerRef = useRef<AbortController | null>(null);
   const messageBufferRef = useRef<string>('');
+  const assistantMessageIdRef = useRef<string>('');
+  const isProcessingRef = useRef(false);
 
   const sendMessage = useCallback(async (params: SendMessageParams) => {
     const { content, images } = params;
@@ -18,8 +20,18 @@ export function useChat() {
       return;
     }
 
-    store.sendMessage(params);
+    if (isProcessingRef.current) {
+      return;
+    }
 
+    isProcessingRef.current = true;
+    const assistantMessageId = store.sendMessage(params);
+    assistantMessageIdRef.current = assistantMessageId;
+
+    await fetchAndStreamResponse(content, images);
+  }, [store]);
+
+  const fetchAndStreamResponse = useCallback(async (content: string, images?: string[]) => {
     abortControllerRef.current = new AbortController();
     messageBufferRef.current = '';
 
@@ -65,29 +77,37 @@ export function useChat() {
                 const chunk = JSON.parse(data) as StreamChunk;
 
                 if (chunk.type === 'image') {
-                  const currentSession = store.sessions.find(s => s.id === store.currentSessionId);
-                  const lastMessage = currentSession?.messages.filter(m => m.role === 'assistant').slice(-1)[0];
-                  if (lastMessage) {
-                    store.updateMessage(chunk.id, {
-                      images: [...(lastMessage.images || []), ...(chunk.images || [])],
-                    });
+                  if (assistantMessageIdRef.current) {
+                    const currentSession = store.sessions.find(s => s.id === store.currentSessionId);
+                    const lastMessage = currentSession?.messages.filter(m => m.role === 'assistant').slice(-1)[0];
+                    if (lastMessage) {
+                      store.updateMessage(assistantMessageIdRef.current, {
+                        images: [...(lastMessage.images || []), ...(chunk.images || [])],
+                      });
+                    }
                   }
                 } else {
                   messageBufferRef.current += chunk.content;
-                  store.updateMessage(chunk.id, {
-                    content: messageBufferRef.current,
-                    status: chunk.done ? 'completed' : 'streaming',
-                  });
+                  if (assistantMessageIdRef.current) {
+                    store.updateMessage(assistantMessageIdRef.current, {
+                      content: messageBufferRef.current,
+                      status: chunk.done ? 'completed' : 'streaming',
+                    });
+                  }
                 }
 
                 if (chunk.done) {
                   store.setStreaming(false);
                   store.setLoading(false);
+                  assistantMessageIdRef.current = '';
+                  isProcessingRef.current = false;
                 }
               } catch {
                 if (data === '[DONE]') {
                   store.setStreaming(false);
                   store.setLoading(false);
+                  assistantMessageIdRef.current = '';
+                  isProcessingRef.current = false;
                 }
               }
             }
@@ -98,19 +118,60 @@ export function useChat() {
       }
     } catch (error) {
       if (error instanceof Error && error.name !== 'AbortError') {
-        const currentSession = store.sessions.find(s => s.id === store.currentSessionId);
-        const lastMessage = currentSession?.messages.filter(m => m.role === 'assistant').slice(-1)[0];
-
-        if (lastMessage) {
-          store.updateMessage(lastMessage.id, {
+        if (assistantMessageIdRef.current) {
+          store.updateMessage(assistantMessageIdRef.current, {
             status: 'error',
             error: error.message,
           });
         }
         store.setLoading(false);
         store.setStreaming(false);
+        assistantMessageIdRef.current = '';
+        isProcessingRef.current = false;
       }
     }
+  }, [store]);
+
+  const editMessage = useCallback(async (messageId: string, newContent: string) => {
+    store.editMessage(messageId, newContent);
+    
+    const currentSession = store.sessions.find(s => s.id === store.currentSessionId);
+    const message = currentSession?.messages.find(m => m.id === messageId);
+    
+    if (message && message.role === 'user') {
+      await fetchAndStreamResponse(newContent, message.images);
+    }
+  }, [store, fetchAndStreamResponse]);
+
+  const resendMessage = useCallback(async (content: string) => {
+    store.resendMessage(content);
+
+    const currentSession = store.sessions.find(s => s.id === store.currentSessionId);
+    const lastMessage = currentSession?.messages.filter(m => m.role === 'assistant').slice(-1)[0];
+    if (lastMessage) {
+      assistantMessageIdRef.current = lastMessage.id;
+    }
+
+    await fetchAndStreamResponse(content);
+  }, [store, fetchAndStreamResponse]);
+
+  const regenerateMessage = useCallback(async (messageId: string) => {
+    const currentSession = store.sessions.find(s => s.id === store.currentSessionId);
+    if (!currentSession) return;
+
+    const messageIndex = currentSession.messages.findIndex(m => m.id === messageId);
+    if (messageIndex === -1) return;
+
+    const assistantMessage = currentSession.messages[messageIndex];
+    if (assistantMessage?.role !== 'assistant') return;
+
+    const userMessageIndex = messageIndex - 1;
+    if (userMessageIndex < 0) return;
+
+    const userMessage = currentSession.messages[userMessageIndex];
+    if (!userMessage || userMessage.role !== 'user') return;
+
+    await fetchAndStreamResponse(userMessage.content, userMessage.images);
   }, [store]);
 
   const abortStreaming = useCallback(() => {
@@ -142,5 +203,9 @@ export function useChat() {
     ...store,
     sendMessage,
     abortStreaming,
+    createSession: store.createSession,
+    editMessage,
+    resendMessage,
+    regenerateMessage,
   };
 }

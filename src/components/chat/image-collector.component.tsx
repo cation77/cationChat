@@ -77,7 +77,7 @@ const ImageCollector: React.FC<ImageCollectorProps> = ({
                 href={src}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-white text-sm hover:underline"
+                className="text-foreground text-sm hover:underline"
               >
                 查看原图
               </a>

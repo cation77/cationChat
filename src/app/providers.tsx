@@ -3,6 +3,7 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider, App } from 'antd';
+import { ThemeProvider } from 'next-themes';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,9 +25,11 @@ const antdConfig = {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ConfigProvider theme={antdConfig}>
-        <App>{children}</App>
-      </ConfigProvider>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ConfigProvider theme={antdConfig}>
+          <App>{children}</App>
+        </ConfigProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

@@ -1,6 +1,6 @@
 export const API_CONFIG = {
-  BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api',
-  SSE_URL: process.env.NEXT_PUBLIC_SSE_URL || 'http://localhost:3001/sse/chat',
+  BASE_URL: process.env.NEXT_PUBLIC_API_URL || '/api',
+  SSE_URL: process.env.NEXT_PUBLIC_SSE_URL || '/api/chat',
   TIMEOUT: 30000,
 } as const;
 

@@ -111,7 +111,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
           },
         }}
       >
-        {content}
+        {content || (isStreaming ? '...' : '')}
       </ReactMarkdown>
     </div>
   );
